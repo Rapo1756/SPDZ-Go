@@ -1,0 +1,15 @@
+# Unix Executables (No extensions)
+*
+!*.*
+!*/
+
+
+# MacOS
+.DS_Store
+
+*.test
+
+go.work
+go.work.sum
+
+.env

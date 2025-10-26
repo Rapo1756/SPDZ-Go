@@ -1,0 +1,2 @@
+# SPDZ-Go
+This repository contains a Go implementation of the SPDZ framework for secure multi-party computation (MPC). SPDZ is a popular framework that allows multiple parties to jointly compute a function over their inputs while keeping those inputs private.
