@@ -9,22 +9,12 @@ import (
 	"spdz-go/utils"
 )
 
-type Evaluator struct {
-	params        Parameters
-	ksw           *rlwe.Evaluator
-	conv          *ring.BasisExtender
-	poolQ         [7]*ring.Poly
-	poolQMul      [7]*ring.Poly
-	poolKeySwitch *rlwe.Ciphertext
-	poolCtMul     *Ciphertext
-
-	buffQ    [][]*ring.Poly
-	buffQMul [][]*ring.Poly
-	buffPt   *rlwe.Plaintext
+type MEvaluator struct {
+	Evaluator
 }
 
-func NewEvaluator(params Parameters) (eval *Evaluator) {
-	eval = new(Evaluator)
+func NewMEvaluator(params Parameters) *MEvaluator {
+	eval := new(Evaluator)
 	eval.params = params
 	eval.ksw = rlwe.NewEvaluator(params.Parameters, nil)
 	eval.conv = ring.NewBasisExtender(params.RingQ(), params.RingQMul())
@@ -37,11 +27,13 @@ func NewEvaluator(params Parameters) (eval *Evaluator) {
 	eval.poolKeySwitch = rlwe.NewCiphertext(params.Parameters, 1, params.MaxLevel())
 	eval.poolCtMul = NewCiphertext(params, 2)
 
-	return eval
+	return &MEvaluator{
+		Evaluator: *eval,
+	}
 }
 
 // getElemAndCheckBinary unwraps the elements from the operands and checks that the receiver has sufficiently large degree.
-func (eval *Evaluator) getElemAndCheckBinary(op0 *rlwe.Ciphertext, op1 rlwe.Operand, opOut *rlwe.Ciphertext, opOutMinDegree int) (el0, el1, elOut *rlwe.Ciphertext) {
+func (eval *MEvaluator) getElemAndCheckBinary(op0 *rlwe.Ciphertext, op1 rlwe.Operand, opOut *rlwe.Ciphertext, opOutMinDegree int) (el0, el1, elOut *rlwe.Ciphertext) {
 	if op0 == nil || op1 == nil || opOut == nil {
 		panic("operands cannot be nil")
 	}
@@ -58,7 +50,7 @@ func (eval *Evaluator) getElemAndCheckBinary(op0 *rlwe.Ciphertext, op1 rlwe.Oper
 }
 
 // evaluateInPlaceBinary applies the provided function in place on el0 and el1 and returns the result in elOut.
-func (eval *Evaluator) evaluateInPlaceBinary(el0, el1, elOut *rlwe.Ciphertext, evaluate func(*ring.Poly, *ring.Poly, *ring.Poly)) {
+func (eval *MEvaluator) evaluateInPlaceBinary(el0, el1, elOut *rlwe.Ciphertext, evaluate func(*ring.Poly, *ring.Poly, *ring.Poly)) {
 
 	smallest, largest, _ := rlwe.GetSmallestLargest(el0, el1)
 
@@ -75,7 +67,7 @@ func (eval *Evaluator) evaluateInPlaceBinary(el0, el1, elOut *rlwe.Ciphertext, e
 }
 
 // relinearize is a method common to Relinearize and RelinearizeNew. It switches ct0 to the NTT domain, applies the keyswitch, and returns the result out of the NTT domain.
-func (eval *Evaluator) relinearize(ct0 *Ciphertext, rlk *rlwe.RelinearizationKey, ctOut *Ciphertext) {
+func (eval *MEvaluator) relinearize(ct0 *Ciphertext, rlk *RelinearizationKey, ctOut *Ciphertext) {
 
 	if ctOut != ct0 {
 		ring.Copy(ct0.Value[0], ctOut.Value[0])
@@ -84,17 +76,26 @@ func (eval *Evaluator) relinearize(ct0 *Ciphertext, rlk *rlwe.RelinearizationKey
 
 	ringQ := eval.params.RingQ()
 
-	for deg := uint64(ct0.Degree()); deg > 1; deg-- {
-		eval.ksw.GadgetProduct(ct0.Value[deg].Level(), ct0.Value[deg], rlk.Keys[deg-2].GadgetCiphertext, eval.poolKeySwitch)
-		ringQ.Add(ctOut.Value[0], eval.poolKeySwitch.Value[0], ctOut.Value[0])
-		ringQ.Add(ctOut.Value[1], eval.poolKeySwitch.Value[1], ctOut.Value[1])
-	}
+	// c11 \bosdot BD = (c11 \boxdot b, c11 \boxdot d)
+	eval.ksw.GadgetProduct(ct0.Value[2].Level(), ct0.Value[2], rlk.BD, eval.poolKeySwitch)
+
+	// Add c11 \boxdot d to ctOut.Value[1]
+	ringQ.Add(eval.poolKeySwitch.Value[1], ctOut.Value[1], ctOut.Value[1])
+
+	// buffer for storing (c11 \ boxdot b)
+	ring.CopyLvl(eval.poolKeySwitch.Value[0].Level(), eval.poolKeySwitch.Value[0], eval.poolQ[0])
+
+	// (c11 \ boxdot B) \boxdot V = (c11 \boxdot b) \boxdot V, (c11 \boxdot b) \boxdot U)
+	eval.ksw.GadgetProduct(eval.poolQ[0].Level(), eval.poolQ[0], rlk.V, eval.poolKeySwitch)
+	// Add (c11 \ boxdot B) \boxdot V to ctOut
+	ringQ.Add(eval.poolKeySwitch.Value[0], ctOut.Value[0], ctOut.Value[0])
+	ringQ.Add(eval.poolKeySwitch.Value[1], ctOut.Value[1], ctOut.Value[1])
 
 	ctOut.Resize(1, ctOut.Level())
 }
 
 // permute performs a column rotation on ct0 and returns the result in ctOut
-func (eval *Evaluator) permute(ct0 *Ciphertext, generator uint64, switchKey *rlwe.SwitchingKey, ctOut *Ciphertext) {
+func (eval *MEvaluator) permute(ct0 *Ciphertext, generator uint64, switchKey *rlwe.SwitchingKey, ctOut *Ciphertext) {
 	ringQ := eval.params.RingQ()
 
 	eval.ksw.GadgetProduct(ct0.Value[1].Level(), ct0.Value[1], switchKey.GadgetCiphertext, eval.poolKeySwitch)
@@ -106,7 +107,7 @@ func (eval *Evaluator) permute(ct0 *Ciphertext, generator uint64, switchKey *rlw
 }
 
 // RescaleQMul extends ct0 to the (Q, QMul) ring for hoisted multiplication.
-func (eval *Evaluator) RescaleQMul(ct0 *Ciphertext, ctOut []ringqp.Poly) {
+func (eval *MEvaluator) RescaleQMul(ct0 *Ciphertext, ctOut []ringqp.Poly) {
 	ringQ := eval.params.RingQ()
 	ringQMul := eval.params.RingQMul()
 	levelQ := len(ringQ.Modulus) - 1
@@ -127,7 +128,7 @@ func (eval *Evaluator) RescaleQMul(ct0 *Ciphertext, ctOut []ringqp.Poly) {
 }
 
 // tensorAndRescale computes (ct0 x ct1) * (t/Q) and stores the result in ctOut.
-func (eval *Evaluator) tensorAndRescale(ct0, ct1, ctOut *rlwe.Ciphertext) {
+func (eval *MEvaluator) tensorAndRescale(ct0, ct1, ctOut *rlwe.Ciphertext) {
 	params := eval.params
 	ringQ := params.RingQ()
 	ringQMul := params.RingQMul()
@@ -190,7 +191,7 @@ func (eval *Evaluator) tensorAndRescale(ct0, ct1, ctOut *rlwe.Ciphertext) {
 
 // tensorAndRescaleHoisted computes (ct0 x ct1) * (t/Q) and stores the result in ctOut.
 // ct0 should be created with ExtendQMulLeft and ct1 with ExtendQMulRight.
-func (eval *Evaluator) tensorAndRescaleHoisted(ct0 []ringqp.Poly, ct1, ctOut *rlwe.Ciphertext) {
+func (eval *MEvaluator) tensorAndRescaleHoisted(ct0 []ringqp.Poly, ct1, ctOut *rlwe.Ciphertext) {
 	ringQ := eval.params.RingQ()
 	ringQMul := eval.params.RingQMul()
 	levelQ := len(ringQ.Modulus) - 1
@@ -228,21 +229,32 @@ func (eval *Evaluator) tensorAndRescaleHoisted(ct0 []ringqp.Poly, ct1, ctOut *rl
 }
 
 // Add adds op0 to op1 and returns the result in ctOut.
-func (eval *Evaluator) Add(op0, op1, ctOut *Ciphertext) {
+func (eval *MEvaluator) Add(op0, op1, ctOut *Ciphertext) {
 	el0, el1, elOut := eval.getElemAndCheckBinary(op0.Ciphertext, op1.Ciphertext,
 		ctOut.Ciphertext, utils.MaxInt(op0.Degree(), op1.Degree()))
 	eval.evaluateInPlaceBinary(el0, el1, elOut, eval.params.RingQ().Add)
 }
 
 // AddNew adds op0 to op1 and creates a new element ctOut to store the result.
-func (eval *Evaluator) AddNew(op0, op1 *Ciphertext) (ctOut *Ciphertext) {
+func (eval *MEvaluator) AddNew(op0, op1 *Ciphertext) (ctOut *Ciphertext) {
 	ctOut = NewCiphertext(eval.params, utils.MaxInt(op0.Degree(), op1.Degree()))
 	eval.Add(op0, op1, ctOut)
 	return
 }
 
+func (eval *MEvaluator) PlaintextAdd(ct *Ciphertext, pt *Plaintext, ctOut *Ciphertext) {
+	el0, el1, elOut := eval.getElemAndCheckBinary(ct.Ciphertext, pt, ctOut.Ciphertext, utils.MaxInt(ct.Degree(), pt.Degree()))
+	eval.evaluateInPlaceBinary(el0, el1, elOut, eval.params.RingQ().Add)
+}
+
+func (eval *MEvaluator) PlaintextAddNew(ct *Ciphertext, pt *Plaintext) (ctOut *Ciphertext) {
+	ctOut = NewCiphertext(eval.params, utils.MaxInt(ct.Degree(), pt.Degree()))
+	eval.PlaintextAdd(ct, pt, ctOut)
+	return
+}
+
 // Sub subtracts op1 from op0 and returns the result in cOut.
-func (eval *Evaluator) Sub(op0, op1, ctOut *Ciphertext) {
+func (eval *MEvaluator) Sub(op0, op1, ctOut *Ciphertext) {
 	el0, el1, elOut := eval.getElemAndCheckBinary(op0.Ciphertext, op1.Ciphertext,
 		ctOut.Ciphertext, utils.MaxInt(op0.Degree(), op1.Degree()))
 	eval.evaluateInPlaceBinary(el0, el1, elOut, eval.params.RingQ().Sub)
@@ -255,21 +267,21 @@ func (eval *Evaluator) Sub(op0, op1, ctOut *Ciphertext) {
 }
 
 // SubNew subtracts op1 from op0 and creates a new element ctOut to store the result.
-func (eval *Evaluator) SubNew(op0, op1 *Ciphertext) (ctOut *Ciphertext) {
+func (eval *MEvaluator) SubNew(op0, op1 *Ciphertext) (ctOut *Ciphertext) {
 	ctOut = NewCiphertext(eval.params, utils.MaxInt(op0.Degree(), op1.Degree()))
 	eval.Sub(op0, op1, ctOut)
 	return
 }
 
 // Neg negates op and returns the result in ctOut.
-func (eval *Evaluator) Neg(ctIn, ctOut *Ciphertext) {
+func (eval *MEvaluator) Neg(ctIn, ctOut *Ciphertext) {
 	for i := 0; i <= ctIn.Degree(); i++ {
 		eval.params.RingQ().Neg(ctIn.Value[i], ctOut.Value[i])
 	}
 }
 
 // NegNew negates op and creates a new element to store the result.
-func (eval *Evaluator) NegNew(ctIn *Ciphertext) (ctOut *Ciphertext) {
+func (eval *MEvaluator) NegNew(ctIn *Ciphertext) (ctOut *Ciphertext) {
 	ctOut = NewCiphertext(eval.params, ctIn.Degree())
 	eval.Neg(ctIn, ctOut)
 	return ctOut
@@ -281,7 +293,7 @@ func (eval *Evaluator) NegNew(ctIn *Ciphertext) (ctOut *Ciphertext) {
 //
 // If only the power-of-two rotations are stored, the numbers k and n/2-k will be decomposed in base-2 and the rotation with the lowest
 // hamming weight will be chosen; then the specific rotation will be computed as a sum of powers of two rotations.
-func (eval *Evaluator) RotateColumns(ct0 *Ciphertext, rtks *rlwe.RotationKeySet, k int, ctOut *Ciphertext) {
+func (eval *MEvaluator) RotateColumns(ct0 *Ciphertext, rtks *rlwe.RotationKeySet, k int, ctOut *Ciphertext) {
 
 	if ct0.Degree() != 1 || ctOut.Degree() != 1 {
 		panic("cannot RotateColumns: input and or output must be of degree 1")
@@ -299,26 +311,26 @@ func (eval *Evaluator) RotateColumns(ct0 *Ciphertext, rtks *rlwe.RotationKeySet,
 			eval.permute(ct0, galElL, swk, ctOut)
 
 		} else {
-			panic(fmt.Errorf("evaluator has no rotation key for rotation by %d", k))
+			panic(fmt.Errorf("MEvaluator has no rotation key for rotation by %d", k))
 		}
 	}
 }
 
 // RotateColumnsNew applies RotateColumns and returns the result in a new Ciphertext.
-func (eval *Evaluator) RotateColumnsNew(ct0 *Ciphertext, rtks *rlwe.RotationKeySet, k int) (ctOut *Ciphertext) {
+func (eval *MEvaluator) RotateColumnsNew(ct0 *Ciphertext, rtks *rlwe.RotationKeySet, k int) (ctOut *Ciphertext) {
 	ctOut = NewCiphertext(eval.params, 1)
 	eval.RotateColumns(ct0, rtks, k, ctOut)
 	return
 }
 
 // Mul multiplies op0 by op1 and returns the result in ctOut.
-func (eval *Evaluator) MulAndRelin(op0, op1 *Ciphertext, rlk *rlwe.RelinearizationKey, ctOut *Ciphertext) {
+func (eval *MEvaluator) MulAndRelin(op0, op1 *Ciphertext, rlk *RelinearizationKey, ctOut *Ciphertext) {
 	eval.tensorAndRescale(op0.Ciphertext, op1.Ciphertext, eval.poolCtMul.Ciphertext)
 	eval.relinearize(eval.poolCtMul, rlk, ctOut)
 }
 
 // Mul multiplies op0 by op1 and returns the result in ctOut.
-func (eval *Evaluator) MulAndRelinNew(op0, op1 *Ciphertext, rlk *rlwe.RelinearizationKey) (ctOut *Ciphertext) {
+func (eval *MEvaluator) MulAndRelinNew(op0, op1 *Ciphertext, rlk *RelinearizationKey) (ctOut *Ciphertext) {
 	ctOut = NewCiphertext(eval.params, 1)
 	eval.MulAndRelin(op0, op1, rlk, ctOut)
 	return
@@ -326,12 +338,12 @@ func (eval *Evaluator) MulAndRelinNew(op0, op1 *Ciphertext, rlk *rlwe.Relineariz
 
 // MulAndRelinHoisted multiplies op0 by op1 and returns the result in ctOut.
 // op0 should be created with ExtendQMulLeft and op1 with ExtendQMulRight.
-func (eval *Evaluator) MulAndRelinHoisted(op0 []ringqp.Poly, op1 *Ciphertext, rlk *rlwe.RelinearizationKey, ctOut *Ciphertext) {
+func (eval *MEvaluator) MulAndRelinHoisted(op0 []ringqp.Poly, op1 *Ciphertext, rlk *RelinearizationKey, ctOut *Ciphertext) {
 	eval.tensorAndRescaleHoisted(op0, op1.Ciphertext, eval.poolCtMul.Ciphertext)
 	eval.relinearize(eval.poolCtMul, rlk, ctOut)
 }
 
-func (eval *Evaluator) tensorAndRescalePt(ct *rlwe.Ciphertext, pt *rlwe.Plaintext, ctOut *rlwe.Ciphertext) {
+func (eval *MEvaluator) tensorAndRescalePt(ct *rlwe.Ciphertext, pt *rlwe.Plaintext, ctOut *rlwe.Ciphertext) {
 	params := eval.params
 	ringQ := params.RingQ()
 	ringQMul := params.RingQMul()
@@ -385,12 +397,12 @@ func (eval *Evaluator) tensorAndRescalePt(ct *rlwe.Ciphertext, pt *rlwe.Plaintex
 	}
 }
 
-func (eval *Evaluator) PlaintextMul(pt *Plaintext, ct *Ciphertext, ctOut *Ciphertext) {
+func (eval *MEvaluator) PlaintextMul(ct *Ciphertext, pt *Plaintext, ctOut *Ciphertext) {
 	eval.tensorAndRescalePt(ct.Ciphertext, pt.Plaintext, ctOut.Ciphertext)
 }
 
-func (eval *Evaluator) PlaintextMulNew(pt *Plaintext, ct *Ciphertext) (ctOut *Ciphertext) {
+func (eval *MEvaluator) PlaintextMulNew(ct *Ciphertext, pt *Plaintext) (ctOut *Ciphertext) {
 	ctOut = NewCiphertext(eval.params, 1)
-	eval.PlaintextMul(pt, ct, ctOut)
+	eval.PlaintextMul(ct, pt, ctOut)
 	return ctOut
 }
