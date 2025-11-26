@@ -1,0 +1,130 @@
+package protocol
+
+import (
+	"spdz-go/hpbfv"
+	"spdz-go/rlwe"
+	"spdz-go/utils"
+)
+
+type HemiParty struct {
+	id int
+
+	params hpbfv.Parameters
+
+	keygen hpbfv.KeyGenerator
+
+	sks []*rlwe.SecretKey // sks[j] = sk_{id, j}
+	pks []*rlwe.PublicKey // pks[j] = pk_{j, id}
+
+	ecd      *hpbfv.Encoder
+	eval     *hpbfv.Evaluator
+	encSelfs []*hpbfv.Encryptor
+	encs     []*hpbfv.Encryptor
+	decs     []*hpbfv.Decryptor
+
+	prng utils.PRNG
+
+	triples []*Triple
+}
+
+func NewHemiParty(id int, params hpbfv.Parameters, numParties int) *HemiParty {
+	keygen := hpbfv.NewKeyGenerator(params)
+	prng, err := utils.NewPRNG()
+	if err != nil {
+		panic("cannot NewHemiParty: PRNG cannot be generated")
+	}
+
+	return &HemiParty{
+		id:       id,
+		params:   params,
+		keygen:   keygen,
+		sks:      make([]*rlwe.SecretKey, numParties),
+		pks:      make([]*rlwe.PublicKey, numParties),
+		prng:     prng,
+		ecd:      hpbfv.NewEncoder(params),
+		encSelfs: make([]*hpbfv.Encryptor, numParties),
+		encs:     make([]*hpbfv.Encryptor, numParties),
+		decs:     make([]*hpbfv.Decryptor, numParties),
+		eval:     hpbfv.NewEvaluator(params),
+		triples:  make([]*Triple, 0),
+	}
+}
+
+func (party *HemiParty) InitSetup(numParties int) []*rlwe.PublicKey {
+	pks := make([]*rlwe.PublicKey, numParties)
+
+	for j := 0; j < numParties; j++ {
+		if j == party.id {
+			continue
+		}
+		sk, pk := party.keygen.GenKeyPair()
+		party.sks[j] = sk
+		pks[j] = pk
+		party.encSelfs[j] = hpbfv.NewEncryptor(party.params, pk)
+		party.decs[j] = hpbfv.NewDecryptor(party.params, sk)
+	}
+	return pks
+}
+
+func (party *HemiParty) FinalizeSetup(pks []*rlwe.PublicKey) {
+	party.pks = pks
+	for j := 0; j < len(pks); j++ {
+		if j == party.id {
+			continue
+		}
+		party.encs[j] = hpbfv.NewEncryptor(party.params, pks[j])
+	}
+}
+
+func (party *HemiParty) SampleAandB() (*hpbfv.Message, *hpbfv.Message) {
+	a := SampleUniformModT(party.params, party.prng)
+	b := SampleUniformModT(party.params, party.prng)
+	return a, b
+}
+
+func (party *HemiParty) PairewiseRoundOne(a *hpbfv.Message, dst int) *hpbfv.Ciphertext {
+	ct := party.encSelfs[dst].EncryptMsgNew(a)
+	return ct
+}
+
+func (party *HemiParty) PairewiseRoundTwo(ctIn *hpbfv.Ciphertext, b *hpbfv.Message, src int) (*hpbfv.Message, *hpbfv.Ciphertext) {
+	eij := SampleUniformModT(party.params, party.prng)
+	encEij := party.encs[src].EncryptMsgNew(eij)
+
+	ptB := party.ecd.EncodeNew(b)
+
+	cij := party.eval.PlaintextMulNew(ptB, ctIn)
+	party.eval.Sub(cij, encEij, cij)
+
+	return eij, cij
+}
+
+func (party *HemiParty) Finalize(a, b *hpbfv.Message, ejis []*hpbfv.Message, cijs []*hpbfv.Ciphertext) {
+	// Multiply a and b
+	ab := hpbfv.NewMessage(party.params)
+	for i := 0; i < party.params.Slots(); i++ {
+		ab.Value[i].Mul(a.Value[i], b.Value[i])
+	}
+	for j, cij := range cijs {
+		if j == party.id {
+			continue
+		}
+		// Decrypt cij
+		dij := party.decs[j].DecryptToMsgNew(cij)
+
+		// Add e_{i,j}
+		for i := 0; i < party.params.Slots(); i++ {
+			ab.Value[i].Add(ab.Value[i], dij.Value[i])
+			ab.Value[i].Add(ab.Value[i], ejis[j].Value[i])
+		}
+	}
+
+	for i := 0; i < party.params.Slots(); i++ {
+		ab.Value[i].Mod(ab.Value[i], party.params.T())
+		party.triples = append(party.triples, &Triple{
+			A: a.Value[i],
+			B: b.Value[i],
+			C: ab.Value[i],
+		})
+	}
+}
