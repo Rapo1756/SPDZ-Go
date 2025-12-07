@@ -6,7 +6,6 @@ import (
 	"spdz-go/ring"
 	"spdz-go/utils"
 
-	"crypto/rand"
 	"math/big"
 )
 
@@ -15,8 +14,7 @@ type DistributedDecryptor struct {
 	buff *ring.Poly
 	sk   *rlwe.SecretKey
 
-	prng       utils.PRNG
-	noiseBytes int
+	prng utils.PRNG
 }
 
 func NewDistributedDecryptor(params Parameters, sk *rlwe.SecretKey) (dec *DistributedDecryptor) {
@@ -30,11 +28,10 @@ func NewDistributedDecryptor(params Parameters, sk *rlwe.SecretKey) (dec *Distri
 		panic(err)
 	}
 	dec.prng = prng
-	dec.noiseBytes = 16
 	return
 }
 
-func (dec *DistributedDecryptor) PartialDecrypt(ct *Ciphertext) *ring.Poly {
+func (dec *DistributedDecryptor) PartialDecrypt(ct *Ciphertext, noise interface{}) *ring.Poly {
 	level := ct.Level()
 
 	ringQ := dec.params.RingQ()
@@ -50,7 +47,17 @@ func (dec *DistributedDecryptor) PartialDecrypt(ct *Ciphertext) *ring.Poly {
 
 	ringQ.InvNTTLvl(level, share, share)
 
-	dec.addNoise(share)
+	// Add noise if specified
+	if noise != nil {
+		switch n := noise.(type) {
+		case *ring.Poly:
+			ringQ.AddLvl(level, share, n, share)
+		case int:
+			dec.addNoise(share, noise.(int))
+		default:
+			panic("cannot PartialDecrypt: invalid noise type")
+		}
+	}
 
 	return share
 }
@@ -98,18 +105,25 @@ func (dec *DistributedDecryptor) JointDecryptToMsgNew(ct *Ciphertext, shares []*
 	return
 }
 
-func (dec *DistributedDecryptor) addNoise(pol *ring.Poly) {
+// The logic is for RNS representation
+func (dec *DistributedDecryptor) addNoise(pol *ring.Poly, noiseBits int) {
 	ringQ := dec.params.RingQ()
-	buf := make([]byte, dec.noiseBytes)
+	buf := make([]byte, (noiseBits+7)/8)
 
 	for j := 0; j < ringQ.N; j++ {
-		_, err := rand.Read(buf)
+		_, err := dec.prng.Read(buf)
 		if err != nil {
 			panic(err)
 		}
 
 		noiseBig := new(big.Int).SetBytes(buf)
 
+		// Mask the noise to the desired bit-length
+		mask := new(big.Int).Lsh(big.NewInt(1), uint(noiseBits))
+		mask.Sub(mask, big.NewInt(1))
+		noiseBig.And(noiseBig, mask)
+
+		// Add the noise to each modulus
 		for i, qi := range ringQ.Modulus {
 			noiseMod := new(big.Int).Mod(noiseBig, new(big.Int).SetUint64(qi)).Uint64()
 

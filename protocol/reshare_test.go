@@ -21,12 +21,14 @@ func TestReshare(t *testing.T) {
 		t.Fatalf("cannot generate crs: %v", err)
 	}
 
-	p1 := NewSohoParty(0, params, crs)
-	p2 := NewSohoParty(1, params, crs)
-	p3 := NewSohoParty(2, params, crs)
 
-	parties := []*SohoParty{p1, p2, p3}
+	parties := make([]*SohoParty, 3)
 
+	for i := 0; i < len(parties); i++ {
+		parties[i] = NewSohoParty(i, params, crs)
+	}
+
+	// Round 0 (Key Generation)
 	ppks := make([]*rlwe.PublicKey, len(parties))
 	prlks := make([]*hpbfv.RelinearizationKey, len(parties))
 
@@ -39,39 +41,42 @@ func TestReshare(t *testing.T) {
 		party.Setup(ppks, prlks)
 	}
 
-	a1, ca1 := p1.SampleUniformModTAndEncrypt()
-	a2, ca2 := p2.SampleUniformModTAndEncrypt()
-	a3, ca3 := p3.SampleUniformModTAndEncrypt()
+	as := make([]*hpbfv.Message, len(parties))
+	cas := make([]*hpbfv.Ciphertext, len(parties))
 
-	// Sum of a1, a2, a3
-	aSum := make([]*big.Int, params.Slots())
-	for i := 0; i < params.Slots(); i++ {
-		aSum[i] = new(big.Int).Add(a1.Value[i], a2.Value[i])
-		aSum[i].Add(aSum[i], a3.Value[i])
-		aSum[i].Mod(aSum[i], params.T())
+	bs := make([]*hpbfv.Message, len(parties))
+	cbs := make([]*hpbfv.Ciphertext, len(parties))
+
+	// Round 1 (Sampling Stage)
+	for i, party := range parties {
+		as[i], cas[i] = party.SampleUniformModTAndEncrypt()
+		bs[i], cbs[i] = party.SampleUniformModTAndEncrypt()
 	}
 
-	b1, cb1 := p1.SampleUniformModTAndEncrypt()
-	b2, cb2 := p2.SampleUniformModTAndEncrypt()
-	b3, cb3 := p3.SampleUniformModTAndEncrypt()
-
-	// Sum of b1, b2, b3
+	aSum := make([]*big.Int, params.Slots())
 	bSum := make([]*big.Int, params.Slots())
+
 	for i := 0; i < params.Slots(); i++ {
-		bSum[i] = new(big.Int).Add(b1.Value[i], b2.Value[i])
-		bSum[i].Add(bSum[i], b3.Value[i])
+		aSum[i] = big.NewInt(0)
+		bSum[i] = big.NewInt(0)
+		for j := 0; j < len(parties); j++ {
+			aSum[i].Add(aSum[i], as[j].Value[i])
+			bSum[i].Add(bSum[i], bs[j].Value[i])
+		}
+		aSum[i].Mod(aSum[i], params.T())
 		bSum[i].Mod(bSum[i], params.T())
 	}
 
-	ca := p1.eval.AddNew(ca1, ca2)
-	ca = p1.eval.AddNew(ca, ca3)
+	ca := parties[0].Aggregate(cas)
+	cb := parties[0].Aggregate(cbs)
 
 	// Check if ca is encryption of aSum
-	dca1 := p1.ddec.PartialDecrypt(ca)
-	dca2 := p2.ddec.PartialDecrypt(ca)
-	dca3 := p3.ddec.PartialDecrypt(ca)
+	dcas := make([]*ring.Poly, len(parties))
+	for i, party := range parties {
+		dcas[i] = party.ddec.PartialDecrypt(ca, 80)
+	}
 
-	decMsg := p1.ddec.JointDecryptToMsgNew(ca, []*ring.Poly{dca1, dca2, dca3})
+	decMsg := parties[0].ddec.JointDecryptToMsgNew(ca, dcas)
 
 	for i := 0; i < params.Slots(); i++ {
 		if decMsg.Value[i].Cmp(aSum[i]) != 0 {
@@ -79,15 +84,12 @@ func TestReshare(t *testing.T) {
 		}
 	}
 
-	cb := p1.eval.AddNew(cb1, cb2)
-	cb = p1.eval.AddNew(cb, cb3)
-
 	// Check if cb is encryption of bSum
-	dcb1 := p1.ddec.PartialDecrypt(cb)
-	dcb2 := p2.ddec.PartialDecrypt(cb)
-	dcb3 := p3.ddec.PartialDecrypt(cb)
-
-	decMsg = p1.ddec.JointDecryptToMsgNew(cb, []*ring.Poly{dcb1, dcb2, dcb3})
+	dcbs := make([]*ring.Poly, len(parties))
+	for i, party := range parties {
+		dcbs[i] = party.ddec.PartialDecrypt(cb, 80)
+	}
+	decMsg = parties[0].ddec.JointDecryptToMsgNew(cb, dcbs)
 
 	for i := 0; i < params.Slots(); i++ {
 		if decMsg.Value[i].Cmp(bSum[i]) != 0 {
@@ -95,14 +97,14 @@ func TestReshare(t *testing.T) {
 		}
 	}
 
-	cc := p1.eval.MulAndRelinNew(ca, cb, p1.jrlk)
+	cc := parties[0].eval.MulAndRelinNew(ca, cb, parties[0].jrlk)
 
 	// Check if cc is encryption of aSum * bSum
-	dcc1 := p1.ddec.PartialDecrypt(cc)
-	dcc2 := p2.ddec.PartialDecrypt(cc)
-	dcc3 := p3.ddec.PartialDecrypt(cc)
-
-	decMsg = p1.ddec.JointDecryptToMsgNew(cc, []*ring.Poly{dcc1, dcc2, dcc3})
+	dccs := make([]*ring.Poly, len(parties))
+	for i, party := range parties {
+		dccs[i] = party.ddec.PartialDecrypt(cc, 80)
+	}
+	decMsg = parties[0].ddec.JointDecryptToMsgNew(cc, dccs)
 
 	for i := 0; i < params.Slots(); i++ {
 		expected := new(big.Int).Mul(aSum[i], bSum[i])
@@ -111,22 +113,28 @@ func TestReshare(t *testing.T) {
 			t.Fatalf("c = aSum * bSum = %s, but decrypted c = %s", expected.String(), decMsg.Value[i].String())
 		}
 	}
+	ss := make([]*hpbfv.Message, len(parties))
+	css := make([]*hpbfv.Ciphertext, len(parties))
 
-	s1, cs1 := p1.SampleUniformModTAndEncrypt()
-	s2, cs2 := p2.SampleUniformModTAndEncrypt()
-	s3, cs3 := p3.SampleUniformModTAndEncrypt()
+	// Each party samples share of noise
+	for i, party := range parties {
+		ss[i], css[i] = party.SampleUniformModTAndEncrypt()
+	}
 
-	sum := p1.AggregateAndAdd(cc, []*hpbfv.Ciphertext{cs1, cs2, cs3})
+	// Compute sSum + c
+	sum := parties[0].AggregateAndAdd(cc, css)
 
-	dsh1 := p1.ddec.PartialDecrypt(sum)
-	dsh2 := p2.ddec.PartialDecrypt(sum)
-	dsh3 := p3.ddec.PartialDecrypt(sum)
-
-	decMsg = p1.ddec.JointDecryptToMsgNew(sum, []*ring.Poly{dsh1, dsh2, dsh3})
+	dshs := make([]*ring.Poly, len(parties))
+	for i, party := range parties {
+		dshs[i] = party.ddec.PartialDecrypt(sum, 80)
+	}
+	decMsg = parties[0].ddec.JointDecryptToMsgNew(sum, dshs)
 
 	for i := 0; i < params.Slots(); i++ {
-		expected := new(big.Int).Add(s1.Value[i], s2.Value[i])
-		expected.Add(expected, s3.Value[i])
+		expected := big.NewInt(0)
+		for j := 0; j < len(parties); j++ {
+			expected.Add(expected, ss[j].Value[i])
+		}
 		tmp := new(big.Int).Mul(aSum[i], bSum[i])
 		expected.Add(expected, tmp)
 		expected.Mod(expected, params.T())
@@ -136,29 +144,36 @@ func TestReshare(t *testing.T) {
 		}
 	}
 
-	// decMsg - s1 - s2 - s3 should be equal to c
+	// decMsg
 	for i := 0; i < params.Slots(); i++ {
 		expected := new(big.Int).Mul(aSum[i], bSum[i])
 		expected.Mod(expected, params.T())
-
-		decMsg.Value[i].Sub(decMsg.Value[i], s1.Value[i])
-		decMsg.Value[i].Sub(decMsg.Value[i], s2.Value[i])
-		decMsg.Value[i].Sub(decMsg.Value[i], s3.Value[i])
+		for j := 0; j < len(parties); j++ {
+			decMsg.Value[i].Sub(decMsg.Value[i], ss[j].Value[i])
+		}
 		decMsg.Value[i].Mod(decMsg.Value[i], params.T())
 
 		if decMsg.Value[i].Cmp(expected) != 0 {
 			t.Fatalf("After subtracting shares, value = %s, but expected = %s", decMsg.Value[i].String(), expected.String())
 		}
 	}
-
-	res1 := p1.Reshare(sum, []*DistDecShare{&DistDecShare{dsh1}, &DistDecShare{dsh2}, &DistDecShare{dsh3}}, s1)
-	res2 := p2.Reshare(sum, []*DistDecShare{&DistDecShare{dsh1}, &DistDecShare{dsh2}, &DistDecShare{dsh3}}, s2)
-	res3 := p3.Reshare(sum, []*DistDecShare{&DistDecShare{dsh1}, &DistDecShare{dsh2}, &DistDecShare{dsh3}}, s3)
+	ress := make([]*hpbfv.Message, len(parties))
+	dsh2s := make([]*DistDecShare, len(parties))
+	// Each party computes reshare shares
+	for i, _ := range parties {
+		dsh2s[i] = &DistDecShare{dshs[i]}
+	}
+	// Each party resharing
+	for i, party := range parties {
+		ress[i] = party.Reshare(sum, dsh2s, ss[i])
+	}
 
 	finalMsg := hpbfv.NewMessage(params)
 	for i := 0; i < params.Slots(); i++ {
-		finalMsg.Value[i] = new(big.Int).Add(res1.Value[i], res2.Value[i])
-		finalMsg.Value[i].Add(finalMsg.Value[i], res3.Value[i])
+		finalMsg.Value[i] = big.NewInt(0)
+		for j := 0; j < len(parties); j++ {
+			finalMsg.Value[i].Add(finalMsg.Value[i], ress[j].Value[i])
+		}
 		finalMsg.Value[i].Mod(finalMsg.Value[i], params.T())
 	}
 

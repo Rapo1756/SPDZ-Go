@@ -8,6 +8,9 @@ import (
 
 	"crypto/rand"
 	"math/big"
+
+	// Measure Time
+	"time"
 )
 
 func TestSohoTripleGeneration(t *testing.T) {
@@ -24,6 +27,7 @@ func TestSohoTripleGeneration(t *testing.T) {
 		parties[i] = NewSohoParty(i, params, crs)
 	}
 
+	start := time.Now()
 	// Round 0 (Key Generation)
 	ppks := make([]*rlwe.PublicKey, len(parties))
 	prlks := make([]*hpbfv.RelinearizationKey, len(parties))
@@ -48,24 +52,20 @@ func TestSohoTripleGeneration(t *testing.T) {
 		as[i], bs[i], cas[i], cbs[i] = party.BufferTriplesRoundOne()
 	}
 
-	// Round 2 (Multiplication Stage)
-	ss := make([]*hpbfv.Message, len(parties))
-	css := make([]*hpbfv.Ciphertext, len(parties))
+	// Round 2 (Multiplication Stage + Resharing Stage)
 	var cc *hpbfv.Ciphertext
-	for i, party := range parties {
-		cc, ss[i], css[i] = party.BufferTriplesRoundTwo(cas, cbs)
-	}
-
-	// Round 3 (Reshare Stage 1)
-	var sumC *hpbfv.Ciphertext
+	ss := make([]*hpbfv.Message, len(parties))
 	dshs := make([]*DistDecShare, len(parties))
 	for i, party := range parties {
-		sumC, dshs[i] = party.BufferTriplesRoundThree(cc, css)
+		ss[i], cc, dshs[i] = party.BufferTriplesRoundTwo(cas, cbs)
 	}
 
 	for i, party := range parties {
-		party.FinalizeTriple(as[i], bs[i], sumC, ss[i], dshs)
+		party.FinalizeTriple(as[i], bs[i], cc, ss[i], dshs)
 	}
+	
+	elapsed := time.Since(start)
+	t.Logf("Soho Triple Generation Time for %d parties: %s", len(parties), elapsed.String())
 
 	// Verify triples (Need to be summed up)
 

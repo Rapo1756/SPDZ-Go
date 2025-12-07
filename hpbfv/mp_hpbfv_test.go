@@ -191,7 +191,7 @@ func testDistDec(testctx *mpTestContext, t *testing.T) {
 
 	shares := make([]*ring.Poly, testctx.numParties)
 	for i := 0; i < testctx.numParties; i++ {
-		shares[i] = testctx.ddecs[i].PartialDecrypt(ct)
+		shares[i] = testctx.ddecs[i].PartialDecrypt(ct, 80)
 	}
 
 	msgOutD := testctx.ddecs[0].JointDecryptToMsgNew(ct, shares)
