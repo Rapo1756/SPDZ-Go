@@ -118,12 +118,12 @@ func (party *HemiParty) SampleAandB() (*hpbfv.Message, *hpbfv.Message) {
 	return a, b
 }
 
-func (party *HemiParty) PairewiseRoundOne(a *hpbfv.Message, dst int) *hpbfv.Ciphertext {
+func (party *HemiParty) PairwiseRoundOne(a *hpbfv.Message, dst int) *hpbfv.Ciphertext {
 	ct := party.encSelfs[dst].EncryptMsgNew(a)
 	return ct
 }
 
-func (party *HemiParty) PairewiseRoundTwo(ctIn *hpbfv.Ciphertext, b *hpbfv.Message, src int) (*hpbfv.Message, *hpbfv.Ciphertext) {
+func (party *HemiParty) PairwiseRoundTwo(ctIn *hpbfv.Ciphertext, b *hpbfv.Message, src int) (*hpbfv.Message, *hpbfv.Ciphertext) {
 	eij := party.SampleUniformModT()
 	encEij := party.encs[src].EncryptMsgNew(eij)
 
