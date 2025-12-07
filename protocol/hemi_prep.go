@@ -4,6 +4,8 @@ import (
 	"spdz-go/hpbfv"
 	"spdz-go/rlwe"
 	"spdz-go/utils"
+
+	"math/big"
 )
 
 type HemiParty struct {
@@ -76,9 +78,43 @@ func (party *HemiParty) FinalizeSetup(pks []*rlwe.PublicKey) {
 	}
 }
 
+// SampleUniformModT samples a message with coefficients uniformly random in [0, t)
+func (p *HemiParty) SampleUniformModT() *hpbfv.Message {
+	params := p.params
+	// Rejection sampling
+	samples := make([]*big.Int, params.Slots())
+	t := params.T()
+	bitLen := t.BitLen()
+	byteLen := (bitLen + 7) / 8
+	mask := big.NewInt(1)
+	mask.Lsh(mask, uint(bitLen))
+	mask.Sub(mask, big.NewInt(1))
+
+	for i := 0; i < params.Slots(); i++ {
+		for {
+			buf := make([]byte, byteLen)
+			_, err := p.prng.Read(buf)
+			if err != nil {
+				panic("cannot SampleUniformModT: PRNG read error")
+			}
+			sample := new(big.Int).SetBytes(buf)
+			sample.And(sample, mask)
+			if sample.Cmp(t) < 0 {
+				samples[i] = sample
+				break
+			}
+		}
+	}
+	msg := hpbfv.NewMessage(params)
+	for i := 0; i < params.Slots(); i++ {
+		msg.Value[i] = samples[i]
+	}
+	return msg
+}
+
 func (party *HemiParty) SampleAandB() (*hpbfv.Message, *hpbfv.Message) {
-	a := SampleUniformModT(party.params, party.prng)
-	b := SampleUniformModT(party.params, party.prng)
+	a := party.SampleUniformModT()
+	b := party.SampleUniformModT()
 	return a, b
 }
 
@@ -88,7 +124,7 @@ func (party *HemiParty) PairewiseRoundOne(a *hpbfv.Message, dst int) *hpbfv.Ciph
 }
 
 func (party *HemiParty) PairewiseRoundTwo(ctIn *hpbfv.Ciphertext, b *hpbfv.Message, src int) (*hpbfv.Message, *hpbfv.Ciphertext) {
-	eij := SampleUniformModT(party.params, party.prng)
+	eij := party.SampleUniformModT()
 	encEij := party.encs[src].EncryptMsgNew(eij)
 
 	ptB := party.ecd.EncodeNew(b)

@@ -3,7 +3,6 @@ package protocol
 import (
 	"spdz-go/hpbfv"
 	"spdz-go/ring"
-	"spdz-go/utils"
 
 	"math/big"
 )
@@ -13,7 +12,8 @@ type DistDecShare struct {
 }
 
 // SampleUniformModT samples a message with coefficients uniformly random in [0, t)
-func SampleUniformModT(params hpbfv.Parameters, prng utils.PRNG) *hpbfv.Message {
+func (p *SohoParty) SampleUniformModT() *hpbfv.Message {
+	params := p.params
 	// Rejection sampling
 	samples := make([]*big.Int, params.Slots())
 	t := params.T()
@@ -26,7 +26,7 @@ func SampleUniformModT(params hpbfv.Parameters, prng utils.PRNG) *hpbfv.Message 
 	for i := 0; i < params.Slots(); i++ {
 		for {
 			buf := make([]byte, byteLen)
-			_, err := prng.Read(buf)
+			_, err := p.prng.Read(buf)
 			if err != nil {
 				panic("cannot SampleUniformModT: PRNG read error")
 			}
@@ -43,12 +43,6 @@ func SampleUniformModT(params hpbfv.Parameters, prng utils.PRNG) *hpbfv.Message 
 		msg.Value[i] = samples[i]
 	}
 	return msg
-}
-
-func (p *SohoParty) SampleUniformModTAndEncrypt() (*hpbfv.Message, *hpbfv.Ciphertext) {
-	msg := SampleUniformModT(p.params, p.prng)
-	ct := p.enc.EncryptMsgNew(msg)
-	return msg, ct
 }
 
 func (p *SohoParty) Aggregate(cts []*hpbfv.Ciphertext) *hpbfv.Ciphertext {

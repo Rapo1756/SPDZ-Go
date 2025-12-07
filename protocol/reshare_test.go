@@ -49,8 +49,11 @@ func TestReshare(t *testing.T) {
 
 	// Round 1 (Sampling Stage)
 	for i, party := range parties {
-		as[i], cas[i] = party.SampleUniformModTAndEncrypt()
-		bs[i], cbs[i] = party.SampleUniformModTAndEncrypt()
+		as[i] = party.SampleUniformModT()
+		cas[i] = party.enc.EncryptMsgNew(as[i])
+
+		bs[i] = party.SampleUniformModT()
+		cbs[i] = party.enc.EncryptMsgNew(bs[i])
 	}
 
 	aSum := make([]*big.Int, params.Slots())
@@ -118,7 +121,8 @@ func TestReshare(t *testing.T) {
 
 	// Each party samples share of noise
 	for i, party := range parties {
-		ss[i], css[i] = party.SampleUniformModTAndEncrypt()
+		ss[i] = party.SampleUniformModT()
+		css[i] = party.enc.EncryptMsgNew(ss[i])
 	}
 
 	// Compute sSum + c

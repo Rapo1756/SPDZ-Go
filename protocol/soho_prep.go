@@ -61,8 +61,11 @@ func (party *SohoParty) Setup(ppks []*rlwe.PublicKey, prlks []*hpbfv.Relineariza
 }
 
 func (party *SohoParty) BufferTriplesRoundOne() (a, b *hpbfv.Message, ca, cb *hpbfv.Ciphertext) {
-	a, ca = party.SampleUniformModTAndEncrypt()
-	b, cb = party.SampleUniformModTAndEncrypt()
+	a = party.SampleUniformModT()
+	b = party.SampleUniformModT()
+	
+	ca = party.enc.EncryptMsgNew(a)
+	cb = party.enc.EncryptMsgNew(b)
 	return
 }
 
@@ -73,7 +76,7 @@ func (party *SohoParty) BufferTriplesRoundTwo(cas, cbs []*hpbfv.Ciphertext) (*hp
 	// Compute c = a*b
 	cc := party.eval.MulAndRelinNew(sumCa, sumCb, party.jrlk)
 
-	s := SampleUniformModT(party.params, party.prng)
+	s := party.SampleUniformModT()
 
 	dsh := party.ddec.PartialDecrypt(cc, party.ecd.EncodeNew(s).Value)
 	return s, cc, &DistDecShare{dsh}
