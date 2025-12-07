@@ -17,6 +17,10 @@ type DistributedDecryptor struct {
 	prng utils.PRNG
 }
 
+type DistDecShare struct {
+	*ring.Poly
+}
+
 func NewDistributedDecryptor(params Parameters, sk *rlwe.SecretKey) (dec *DistributedDecryptor) {
 	dec = new(DistributedDecryptor)
 	dec.Decryptor = *NewDecryptor(params, sk)
@@ -31,7 +35,7 @@ func NewDistributedDecryptor(params Parameters, sk *rlwe.SecretKey) (dec *Distri
 	return
 }
 
-func (dec *DistributedDecryptor) PartialDecrypt(ct *Ciphertext, noise interface{}) *ring.Poly {
+func (dec *DistributedDecryptor) PartialDecrypt(ct *Ciphertext, noise interface{}) *DistDecShare {
 	level := ct.Level()
 
 	ringQ := dec.params.RingQ()
@@ -59,10 +63,14 @@ func (dec *DistributedDecryptor) PartialDecrypt(ct *Ciphertext, noise interface{
 		}
 	}
 
-	return share
+	return &DistDecShare{share}
 }
 
-func (dec *DistributedDecryptor) JointDecrypt(ct *Ciphertext, shares []*ring.Poly, ptOut *Plaintext) {
+func (dec *DistributedDecryptor) PartialDecryptNew(ct *Ciphertext, noise interface{}) *DistDecShare {
+	return dec.PartialDecrypt(ct, noise)
+}
+
+func (dec *DistributedDecryptor) JointDecrypt(ct *Ciphertext, shares []*DistDecShare, ptOut *Plaintext) {
 	ringQ := dec.params.RingQ()
 
 	level := utils.MinInt(ct.Level(), ptOut.Level())
@@ -74,7 +82,7 @@ func (dec *DistributedDecryptor) JointDecrypt(ct *Ciphertext, shares []*ring.Pol
 	acc := ringQ.NewPolyLvl(level)
 
 	for _, share := range shares {
-		ringQ.AddLvl(level, acc, share, acc)
+		ringQ.AddLvl(level, acc, share.Poly, acc)
 	}
 
 	ringQ.NTTLvl(level, acc, acc)
@@ -88,18 +96,18 @@ func (dec *DistributedDecryptor) JointDecrypt(ct *Ciphertext, shares []*ring.Pol
 	ringQ.InvNTTLvl(level, ptOut.Value, ptOut.Value)
 }
 
-func (dec *DistributedDecryptor) JointDecryptNew(ct *Ciphertext, shares []*ring.Poly) (ptOut *Plaintext) {
+func (dec *DistributedDecryptor) JointDecryptNew(ct *Ciphertext, shares []*DistDecShare) (ptOut *Plaintext) {
 	ptOut = NewPlaintext(dec.params)
 	dec.JointDecrypt(ct, shares, ptOut)
 	return
 }
 
-func (dec *DistributedDecryptor) JointDecryptToMsg(ct *Ciphertext, shares []*ring.Poly, msgOut *Message) {
+func (dec *DistributedDecryptor) JointDecryptToMsg(ct *Ciphertext, shares []*DistDecShare, msgOut *Message) {
 	pt := dec.JointDecryptNew(ct, shares)
 	dec.dcd.Decode(pt, msgOut)
 }
 
-func (dec *DistributedDecryptor) JointDecryptToMsgNew(ct *Ciphertext, shares []*ring.Poly) (msgOut *Message) {
+func (dec *DistributedDecryptor) JointDecryptToMsgNew(ct *Ciphertext, shares []*DistDecShare) (msgOut *Message) {
 	msgOut = NewMessage(dec.params)
 	dec.JointDecryptToMsg(ct, shares, msgOut)
 	return

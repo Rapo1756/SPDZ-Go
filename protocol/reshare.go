@@ -2,14 +2,9 @@ package protocol
 
 import (
 	"spdz-go/hpbfv"
-	"spdz-go/ring"
 
 	"math/big"
 )
-
-type DistDecShare struct {
-	*ring.Poly
-}
 
 // SampleUniformModT samples a message with coefficients uniformly random in [0, t)
 func (p *SohoParty) SampleUniformModT() *hpbfv.Message {
@@ -59,7 +54,7 @@ func (p *SohoParty) AggregateAndAdd(ctIn *hpbfv.Ciphertext, cts []*hpbfv.Ciphert
 	return sumCt
 }
 
-func (p *SohoParty) Reshare(ctIn *hpbfv.Ciphertext, shares []*DistDecShare, msg *hpbfv.Message) *hpbfv.Message {
+func (p *SohoParty) Reshare(ctIn *hpbfv.Ciphertext, shares []*hpbfv.DistDecShare, msg *hpbfv.Message) *hpbfv.Message {
 	if p.id != 0 {
 		negMsg := hpbfv.NewMessage(p.params)
 		t := p.params.T()
@@ -69,12 +64,7 @@ func (p *SohoParty) Reshare(ctIn *hpbfv.Ciphertext, shares []*DistDecShare, msg 
 		return negMsg
 	}
 
-	sharesPolys := make([]*ring.Poly, len(shares))
-	for i, share := range shares {
-		sharesPolys[i] = share.Poly
-	}
-
-	msgDec := p.ddec.JointDecryptToMsgNew(ctIn, sharesPolys)
+	msgDec := p.ddec.JointDecryptToMsgNew(ctIn, shares)
 
 	for i := 0; i < p.params.Slots(); i++ {
 		msgDec.Value[i].Sub(msgDec.Value[i], msg.Value[i])

@@ -21,7 +21,7 @@ func TestSohoTripleGeneration(t *testing.T) {
 		t.Fatalf("cannot generate crs: %v", err)
 	}
 
-	parties := make([]*SohoParty, 3)
+	parties := make([]*SohoParty, 100)
 
 	for i := 0; i < len(parties); i++ {
 		parties[i] = NewSohoParty(i, params, crs)
@@ -55,7 +55,7 @@ func TestSohoTripleGeneration(t *testing.T) {
 	// Round 2 (Multiplication Stage + Resharing Stage)
 	var cc *hpbfv.Ciphertext
 	ss := make([]*hpbfv.Message, len(parties))
-	dshs := make([]*DistDecShare, len(parties))
+	dshs := make([]*hpbfv.DistDecShare, len(parties))
 	for i, party := range parties {
 		ss[i], cc, dshs[i] = party.BufferTriplesRoundTwo(cas, cbs)
 	}

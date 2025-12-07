@@ -69,7 +69,7 @@ func (party *SohoParty) BufferTriplesRoundOne() (a, b *hpbfv.Message, ca, cb *hp
 	return
 }
 
-func (party *SohoParty) BufferTriplesRoundTwo(cas, cbs []*hpbfv.Ciphertext) (*hpbfv.Message, *hpbfv.Ciphertext, *DistDecShare) {
+func (party *SohoParty) BufferTriplesRoundTwo(cas, cbs []*hpbfv.Ciphertext) (*hpbfv.Message, *hpbfv.Ciphertext, *hpbfv.DistDecShare) {
 	sumCa := party.Aggregate(cas)
 	sumCb := party.Aggregate(cbs)
 
@@ -79,10 +79,10 @@ func (party *SohoParty) BufferTriplesRoundTwo(cas, cbs []*hpbfv.Ciphertext) (*hp
 	s := party.SampleUniformModT()
 
 	dsh := party.ddec.PartialDecrypt(cc, party.ecd.EncodeNew(s).Value)
-	return s, cc, &DistDecShare{dsh}
+	return s, cc, dsh
 }
 
-func (party *SohoParty) FinalizeTriple(a, b *hpbfv.Message, cc *hpbfv.Ciphertext, s *hpbfv.Message, dshs []*DistDecShare) {
+func (party *SohoParty) FinalizeTriple(a, b *hpbfv.Message, cc *hpbfv.Ciphertext, s *hpbfv.Message, dshs []*hpbfv.DistDecShare) {
 	c := party.Reshare(cc, dshs, s)
 
 	for i := 0; i < party.params.Slots(); i++ {

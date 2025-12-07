@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"spdz-go/hpbfv"
-	"spdz-go/ring"
 	"spdz-go/rlwe"
 
 	"crypto/rand"
@@ -73,10 +72,16 @@ func TestReshare(t *testing.T) {
 	ca := parties[0].Aggregate(cas)
 	cb := parties[0].Aggregate(cbs)
 
+	cc := parties[0].eval.MulAndRelinNew(ca, cb, parties[0].jrlk)
+
 	// Check if ca is encryption of aSum
-	dcas := make([]*ring.Poly, len(parties))
+	dcas := make([]*hpbfv.DistDecShare, len(parties))
+	dcbs := make([]*hpbfv.DistDecShare, len(parties))
+	dccs := make([]*hpbfv.DistDecShare, len(parties))
 	for i, party := range parties {
 		dcas[i] = party.ddec.PartialDecrypt(ca, 80)
+		dcbs[i] = party.ddec.PartialDecrypt(cb, 80)
+		dccs[i] = party.ddec.PartialDecrypt(cc, 80)
 	}
 
 	decMsg := parties[0].ddec.JointDecryptToMsgNew(ca, dcas)
@@ -86,26 +91,12 @@ func TestReshare(t *testing.T) {
 			t.Fatalf("aSum = %s, but decrypted aSum = %s", aSum[i].String(), decMsg.Value[i].String())
 		}
 	}
-
-	// Check if cb is encryption of bSum
-	dcbs := make([]*ring.Poly, len(parties))
-	for i, party := range parties {
-		dcbs[i] = party.ddec.PartialDecrypt(cb, 80)
-	}
 	decMsg = parties[0].ddec.JointDecryptToMsgNew(cb, dcbs)
 
 	for i := 0; i < params.Slots(); i++ {
 		if decMsg.Value[i].Cmp(bSum[i]) != 0 {
 			t.Fatalf("bSum = %s, but decrypted bSum = %s", bSum[i].String(), decMsg.Value[i].String())
 		}
-	}
-
-	cc := parties[0].eval.MulAndRelinNew(ca, cb, parties[0].jrlk)
-
-	// Check if cc is encryption of aSum * bSum
-	dccs := make([]*ring.Poly, len(parties))
-	for i, party := range parties {
-		dccs[i] = party.ddec.PartialDecrypt(cc, 80)
 	}
 	decMsg = parties[0].ddec.JointDecryptToMsgNew(cc, dccs)
 
@@ -128,7 +119,7 @@ func TestReshare(t *testing.T) {
 	// Compute sSum + c
 	sum := parties[0].AggregateAndAdd(cc, css)
 
-	dshs := make([]*ring.Poly, len(parties))
+	dshs := make([]*hpbfv.DistDecShare, len(parties))
 	for i, party := range parties {
 		dshs[i] = party.ddec.PartialDecrypt(sum, 80)
 	}
@@ -162,14 +153,9 @@ func TestReshare(t *testing.T) {
 		}
 	}
 	ress := make([]*hpbfv.Message, len(parties))
-	dsh2s := make([]*DistDecShare, len(parties))
-	// Each party computes reshare shares
-	for i, _ := range parties {
-		dsh2s[i] = &DistDecShare{dshs[i]}
-	}
 	// Each party resharing
 	for i, party := range parties {
-		ress[i] = party.Reshare(sum, dsh2s, ss[i])
+		ress[i] = party.Reshare(sum, dshs, ss[i])
 	}
 
 	finalMsg := hpbfv.NewMessage(params)
