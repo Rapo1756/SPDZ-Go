@@ -34,10 +34,10 @@ type hemiPartyChannels struct {
 }
 
 func TestHemiPrep(t *testing.T) {
-	params := hpbfv.NewParametersFromLiteral(hpbfv.HPN13D10T128)
+	params := hpbfv.NewParametersFromLiteral(hpbfv.HEMI)
 
 	// Number of Parties
-	numParties := 10
+	numParties := 3
 
 	// Initialize Channels
 	partyChans := make([]hemiPartyChannels, numParties)

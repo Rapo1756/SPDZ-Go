@@ -32,6 +32,23 @@ var (
 		G: MustBigFromDecimal("328256967394537077627"), // 3^43
 	}
 
+	HEMI = ParametersLiteral{
+		LogN: 14,
+		
+		Q: []uint64{
+			0x1fffffffffe10001,
+		}, // 61
+		QMul: []uint64{
+			0x1fffffffffab0001,
+		},
+
+		Sigma: rlwe.DefaultSigma,
+
+		B: MustBigFromDecimal("10792"), // 10792 = 2^14 - 5592
+		D: 1 << 9,
+		G: MustBigFromDecimal("328256967394537077627"), // 3^43
+	}
+
 
 	HPN14D13T128 = ParametersLiteral{
 		LogN: 14,
