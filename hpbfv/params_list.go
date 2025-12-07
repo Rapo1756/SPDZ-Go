@@ -15,6 +15,24 @@ func MustBigFromDecimal(dec string) *big.Int {
 }
 
 var (
+	SOHO = ParametersLiteral{
+		LogN: 14,
+		
+		Q: []uint64{
+			0x1fffffffffe10001, 0x1fffffffffe00001,
+		}, // 61 * 2 = 122
+		QMul: []uint64{
+			0x1fffffffffab0001, 0x1fffffffffa10001,
+		},
+
+		Sigma: rlwe.DefaultSigma,
+
+		B: MustBigFromDecimal("10792"), // 10792 = 2^14 - 5592
+		D: 1 << 9,
+		G: MustBigFromDecimal("328256967394537077627"), // 3^43
+	}
+
+
 	HPN14D13T128 = ParametersLiteral{
 		LogN: 14,
 

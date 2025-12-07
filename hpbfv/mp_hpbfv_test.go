@@ -107,7 +107,7 @@ func genMPTestVectors(testctx *mpTestContext) (msg *Message) {
 }
 
 func TestMPGPFV(t *testing.T) {
-	params := NewParametersFromLiteral(HPN13D10T128)
+	params := NewParametersFromLiteral(SOHO)
 	crs := make([]byte, 32)
 	prng, err := utils.NewPRNG()
 	if err != nil {

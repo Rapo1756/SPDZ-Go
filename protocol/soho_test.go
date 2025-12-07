@@ -14,7 +14,7 @@ import (
 )
 
 func TestSohoTripleGeneration(t *testing.T) {
-	params := hpbfv.NewParametersFromLiteral(hpbfv.HPN13D10T128)
+	params := hpbfv.NewParametersFromLiteral(hpbfv.SOHO)
 	crs := make([]byte, 32)
 	_, err := rand.Read(crs)
 	if err != nil {
@@ -63,7 +63,7 @@ func TestSohoTripleGeneration(t *testing.T) {
 	for i, party := range parties {
 		party.FinalizeTriple(as[i], bs[i], cc, ss[i], dshs)
 	}
-	
+
 	elapsed := time.Since(start)
 	t.Logf("Soho Triple Generation Time for %d parties: %s", len(parties), elapsed.String())
 
@@ -92,4 +92,6 @@ func TestSohoTripleGeneration(t *testing.T) {
 			t.Fatalf("Triple check failed: A=%s, B=%s, C=%s, but A*B=%s", aSum.String(), bSum.String(), cSum.String(), ab.String())
 		}
 	}
+	// The number of triples generated
+	t.Logf("Number of triples generated: %d", len(parties[0].triples))
 }
