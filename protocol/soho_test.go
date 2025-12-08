@@ -9,9 +9,7 @@ import (
 	"crypto/rand"
 	"math/big"
 
-	// Measure Time
 	"sync"
-	"time"
 )
 
 // --- Message Structs for Phases ---
@@ -68,8 +66,6 @@ func TestSohoPrep(t *testing.T) {
 	finishedParties := make(chan *SohoParty, numParties)
 	var wg sync.WaitGroup
 
-	start := time.Now()
-
 	// Start Parties
 	for i := 0; i < numParties; i++ {
 		wg.Add(1)
@@ -81,14 +77,10 @@ func TestSohoPrep(t *testing.T) {
 	wg.Wait()
 	close(finishedParties)
 
-	elapsed := time.Since(start)
-	t.Logf("Soho Triple Generation Time for %d parties: %s", numParties, elapsed.String())
-
 	parties := make([]*SohoParty, numParties)
 	for p := range finishedParties {
 		parties[p.id] = p
 	}
-	t.Logf("Number of triples generated: %d", len(parties[0].triples))
 
 	for i := range parties[0].triples {
 		aSum := big.NewInt(0)

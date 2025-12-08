@@ -36,11 +36,11 @@ var (
 		LogN: 14,
 		
 		Q: []uint64{
-			0x1fffffffffe10001,
-		}, // 61
+			0x20008001, 0x1ffc8001,0x20040001, 
+		}, // 29 * 3 = 87
 		QMul: []uint64{
-			0x1fffffffffab0001,
-		},
+			0x1ffc0001, 0x1ffb0001, 0x20068001,
+		}, 
 
 		Sigma: rlwe.DefaultSigma,
 
