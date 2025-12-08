@@ -35,7 +35,7 @@ func NewDistributedDecryptor(params Parameters, sk *rlwe.SecretKey) (dec *Distri
 	return
 }
 
-func (dec *DistributedDecryptor) PartialDecrypt(ct *Ciphertext, noise interface{}) *DistDecShare {
+func (dec *DistributedDecryptor) PartialDecrypt(ct *Ciphertext, noiseBits int) *DistDecShare {
 	level := ct.Level()
 
 	ringQ := dec.params.RingQ()
@@ -50,24 +50,13 @@ func (dec *DistributedDecryptor) PartialDecrypt(ct *Ciphertext, noise interface{
 	ringQ.MulCoeffsMontgomeryLvl(level, share, dec.sk.Value.Q, share)
 
 	ringQ.InvNTTLvl(level, share, share)
-
-	// Add noise if specified
-	if noise != nil {
-		switch n := noise.(type) {
-		case *ring.Poly:
-			ringQ.AddLvl(level, share, n, share)
-		case int:
-			dec.addNoise(share, noise.(int))
-		default:
-			panic("cannot PartialDecrypt: invalid noise type")
-		}
-	}
+	dec.addNoise(share, noiseBits)
 
 	return &DistDecShare{share}
 }
 
-func (dec *DistributedDecryptor) PartialDecryptNew(ct *Ciphertext, noise interface{}) *DistDecShare {
-	return dec.PartialDecrypt(ct, noise)
+func (dec *DistributedDecryptor) PartialDecryptNew(ct *Ciphertext, noiseBits int) *DistDecShare {
+	return dec.PartialDecrypt(ct, noiseBits)
 }
 
 func (dec *DistributedDecryptor) JointDecrypt(ct *Ciphertext, shares []*DistDecShare, ptOut *Plaintext) {

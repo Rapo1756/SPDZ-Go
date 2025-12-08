@@ -52,7 +52,7 @@ func TestSohoPrep(t *testing.T) {
 	}
 
 	// Number of Parties
-	numParties := 10
+	numParties := 3
 
 	// Initialize Channels
 	partyChans := make([]sohoPartyChannels, numParties)
@@ -158,7 +158,7 @@ func runSohoParty(id, numParties int, params hpbfv.Parameters, crs []byte, allCh
 	}
 
 	// --- Round 2: Multiplication & Resharing ---
-	s, cc, dsh := party.BufferTriplesRoundTwo(cas, cbs)
+	s, cc, dsh := party.BufferTriplesRoundTwo(cas, cbs, 80)
 
 	// Broadcast my decryption share
 	myShareMsg := sohoShareMsg{

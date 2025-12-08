@@ -54,7 +54,21 @@ func (p *SohoParty) AggregateAndAdd(ctIn *hpbfv.Ciphertext, cts []*hpbfv.Ciphert
 	return sumCt
 }
 
-func (p *SohoParty) Reshare(ctIn *hpbfv.Ciphertext, shares []*hpbfv.DistDecShare, msg *hpbfv.Message) *hpbfv.Message {
+func (p *SohoParty) ReshareInit(ctIn *hpbfv.Ciphertext, noiseBits int) (*hpbfv.Message, *hpbfv.DistDecShare) {
+
+	s := p.SampleUniformModT()
+	dsh := p.ddec.PartialDecrypt(ctIn, noiseBits)
+
+	// add s to dsh
+	level := ctIn.Level()
+	ringQ := p.params.RingQ()
+	sPoly := p.ecd.EncodeNew(s).Value
+	ringQ.AddLvl(level, dsh.Poly, sPoly, dsh.Poly)
+
+	return s, dsh
+}
+
+func (p *SohoParty) ReshareFinalize(ctIn *hpbfv.Ciphertext, shares []*hpbfv.DistDecShare, msg *hpbfv.Message) *hpbfv.Message {
 	if p.id != 0 {
 		negMsg := hpbfv.NewMessage(p.params)
 		t := p.params.T()
